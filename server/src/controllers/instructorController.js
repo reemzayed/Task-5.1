@@ -25,8 +25,8 @@ const loginSchema = Joi.object({
 
 // Only allow searching by instructor name.
 const searchSchema = Joi.object({
-  name: Joi.string().trim().min(1).max(100).required()
-}).unknown(false); // Disallow extra fields (e.g. $where)
+  name: Joi.string().trim().min(1).max(100)
+}).unknown(false);
 
 function publicProfile(doc) {
   // A successful login is a "trophy": we deliberately return the sensitive
@@ -94,6 +94,7 @@ export async function getDirectory(req, res, next) {
 }
 
 // GET /api/instructors/search
+
 export async function searchInstructors(req, res, next) {
   try {
     // ⚠️ VULNERABLE (NoSQL injection): the entire query string is used as the
@@ -104,7 +105,19 @@ export async function searchInstructors(req, res, next) {
     //   ?username[$regex]=^admin        -> regex enumeration
     //   ?$where=this.password.length>10 -> server-side JavaScript execution
 
-    const { error, value } = searchSchema.validate(req.query, {
+    // Only extract the supported search parameter.
+    // Ignore all other query parameters instead of passing them to MongoDB.
+    const searchInput = {};
+
+    if (req.query.name !== undefined) {
+      if (typeof req.query.name !== 'string') {
+        return res.status(400).json({ message: 'Invalid search parameters' });
+      }
+
+      searchInput.name = req.query.name;
+    }
+
+    const { error, value } = searchSchema.validate(searchInput, {
       abortEarly: false,
       convert: false
     });
@@ -113,16 +126,13 @@ export async function searchInstructors(req, res, next) {
       return res.status(400).json({ message: 'Invalid search parameters' });
     }
 
-    const { name } = value;
+    // Construct the filter ourselves using only validated input.
+    const filter = {};
 
-    // Escape regex special characters so the user can search for literal text,
-    // but cannot inject their own regular-expression operators.
-    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); //This regex finds any character that has special meaning in regex and escapes it with a backslash, so it is treated as a literal character in the search pattern.
-
-    // Build the MongoDB filter ourselves instead of passing req.query directly.
-    const filter = {
-      name: new RegExp(escapedName, 'i') //We decide what the database query looks like. The user only controls the validated name value.
-    };
+    if (value.name !== undefined) {
+      const escapedName = value.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.name = new RegExp(escapedName, 'i');
+    }
 
     const instructors = await Instructor.find(filter)
       .select('name department role')
