@@ -1,6 +1,9 @@
+
 import express from 'express';
 import morgan from 'morgan';
 import cors from 'cors';
+import mongoSanitize from 'express-mongo-sanitize';
+
 import authRoutes from './routes/auth.js';
 import reviewRoutes from './routes/reviews.js';
 import userRoutes from './routes/users.js';
@@ -10,7 +13,13 @@ const app = express();
 
 app.use(morgan('dev'));
 app.use(cors({ origin: 'http://localhost:5175', credentials: false }));
+
+// Parse incoming JSON request bodies.
 app.use(express.json());
+
+// Remove dangerous MongoDB operators and dotted keys
+// from untrusted request input.
+app.use(mongoSanitize());
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
@@ -21,13 +30,15 @@ app.use('/api/instructors', instructorRoutes);
 
 // Not found
 app.use((req, res) => {
-  res.status(404).json({ message: 'Not Found' });
+    res.status(404).json({ message: 'Not Found' });
 });
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ message: err.message || 'Server Error' });
+    console.error(err);
+    res.status(err.status || 500).json({
+        message: err.message || 'Server Error'
+    });
 });
 
 export default app;
